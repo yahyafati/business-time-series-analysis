@@ -6,9 +6,11 @@ COUNTRY_SECTOR = "country_sector"
 PRODUCT_SECTOR = "Product/Sector"
 REPORTING_ECONOMY = "Reporting Economy"
 
-ALL_COLUMNS = ['2005', '2006', '2007', '2008', '2009', '2010',
-       '2011', '2012', '2013', '2014', '2015', '2016', '2017', '2018', '2019',
-       '2020', '2021', '2022']
+
+def get_all_columns() -> list[str]:
+    ALL_COLUMNS = [str(x) for x in range(2005, 2023)]
+    return ALL_COLUMNS.copy()
+
 
 def combine_country_sector(df: pd.DataFrame) -> pd.DataFrame:
     SECTORS_IDS = df[PRODUCT_SECTOR].str.split("-").str[1].str.strip()
@@ -19,12 +21,13 @@ def combine_country_sector(df: pd.DataFrame) -> pd.DataFrame:
     df = df.drop([REPORTING_ECONOMY, PRODUCT_SECTOR], axis=1)
     return df
 
+
 def rename_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     """
     Get rows with duplicates i.e same country and sector
-    
+
     In this dataset, it only happens with EU countries. There are 3 rows for each sector
-    
+
     One is the sum of the other two. We will drop the sum row, and rename the other two
     """
 
@@ -43,16 +46,19 @@ def rename_duplicates(df: pd.DataFrame) -> pd.DataFrame:
                 df.loc[row_index, COUNTRY_SECTOR] = f"{country_sector}_{i+1}"
     return df
 
-def tranpose_data(src: str, dest: str = None) -> pd.DataFrame:
-    df = pd.read_csv(src, delimiter=';')
-    df = combine_country_sector(df)
-    
-    no_of_duplicates = df[COUNTRY_SECTOR].shape[0] - df[COUNTRY_SECTOR].unique().shape[0]
-    print(f"There are {no_of_duplicates} rows with same Country and Sector.")
 
+def tranpose_data(df: pd.DataFrame) -> pd.DataFrame:
+    df = combine_country_sector(df)
     df = rename_duplicates(df)
     df = df.set_index(COUNTRY_SECTOR)
     df = df.transpose()
+
+    return df
+
+
+def read_tranpose_data(src: str, dest: str = None) -> pd.DataFrame:
+    df = pd.read_csv(src, delimiter=";")
+    df = tranpose_data(df)
 
     if dest:
         df.to_csv(dest, index=True)
@@ -60,5 +66,5 @@ def tranpose_data(src: str, dest: str = None) -> pd.DataFrame:
     return df
 
 
-if __name__ == '__main__':
-    print(tranpose_data("data.csv", "transposed.ignore.csv").head())
+if __name__ == "__main__":
+    print(read_tranpose_data("data.csv", "transposed.ignore.csv").head())

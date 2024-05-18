@@ -15,6 +15,7 @@ h5py==3.11.0
 holidays==0.48
 idna==3.7
 importlib_resources==6.4.0
+joblib==1.4.2
 keras==3.3.3
 kiwisolver==1.4.5
 libclang==18.1.1
@@ -42,6 +43,7 @@ python-dateutil==2.9.0.post0
 pytz==2024.1
 requests==2.31.0
 rich==13.7.1
+scikit-learn==1.4.2
 scipy==1.13.0
 setuptools==69.5.1
 six==1.16.0
@@ -52,6 +54,7 @@ tensorboard==2.16.2
 tensorboard-data-server==0.7.2
 tensorflow==2.16.1
 termcolor==2.4.0
+threadpoolctl==3.5.0
 tqdm==4.66.4
 typing_extensions==4.11.0
 tzdata==2024.1

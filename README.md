@@ -1,1 +1,1 @@
-# business-time-series-analysis
+# Business Application - Time Series Analysis

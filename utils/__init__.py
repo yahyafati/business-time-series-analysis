@@ -1,7 +1,7 @@
 from . import *
 
 import numpy as np
-import time as time_module
+import time
 from functools import wraps
 
 from dataclasses import dataclass
@@ -33,14 +33,31 @@ def plot_prediction(
     plt.legend(loc="best")
 
 
-def timed_function(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        start_time = time_module.time()
-        result = func(*args, **kwargs)
-        end_time = time_module.time()
-        execution_time = end_time - start_time
-        print(f"Execution time of {func.__name__}: {execution_time:.6f} seconds")
-        return result
+def timed_function(function_name=None):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            start_time = time.time()
+            result = func(*args, **kwargs)
+            end_time = time.time()
+            execution_time = end_time - start_time
+            name = function_name if function_name else func.__name__
+            print(f"Execution time of {name}: {execution_time:.6f} seconds")
+            return result
 
-    return wrapper
+        return wrapper
+
+    return decorator
+
+
+# def timed_function(func):
+#     @wraps(func)
+#     def wrapper(*args, **kwargs):
+#         start_time = time_module.time()
+#         result = func(*args, **kwargs)
+#         end_time = time_module.time()
+#         execution_time = end_time - start_time
+#         print(f"Execution time of {func.__name__}: {execution_time:.6f} seconds")
+#         return result
+
+#     return wrapper

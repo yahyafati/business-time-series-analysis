@@ -4,7 +4,7 @@ import os
 
 # Local imports
 from utils import transposer
-from trainers import LinearReg
+from trainers import LinearReg, ARIMA, ProphetReg
 
 
 def process_country_sector(column_sector):
@@ -31,14 +31,23 @@ def process_country_sector(column_sector):
     return data
 
 
-def predict_country_sector(data, country_sector):
+def get_predictions_for_country_sector(data, country_sector):
     country_sector_data = data[["year", country_sector]]
     country_sector_data = process_country_sector(country_sector_data)
 
+    print(f"Predicting {country_sector} using Linear Regression...")
     linear_reg = LinearReg.LinearRegAdapter(country_sector_data)
-    result = linear_reg.predict()
+    linear_reg.predict()
 
-    return result
+    print(f"Predicting {country_sector} using ARIMA...")
+    arima_reg = ARIMA.ARIMAAdapter(country_sector_data)
+    arima_reg.predict()
+
+    print(f"Predicting {country_sector} using Prophet...")
+    prophet_reg = ProphetReg.ProphetAdapter(country_sector_data)
+    prophet_reg.predict()
+
+    return [linear_reg, arima_reg, prophet_reg]
 
 
 def main():
@@ -48,7 +57,7 @@ def main():
     df = df.reset_index()
     df = df.rename(columns={"index": "year"})
 
-    result = predict_country_sector(df, "United States of America_MA")
+    results = get_predictions_for_country_sector(df, "United States of America_MA")
 
     print("Enter 'q' to quit")
     q = input(">> ")

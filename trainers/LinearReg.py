@@ -4,7 +4,7 @@ import pandas as pd
 
 # Local imports
 from utils import timed_function, mean_absolute_percentage_error
-from . import TrainerAdapter
+from trainers.TrainingAdapter import TrainerAdapter
 
 
 class LinearRegAdapter(TrainerAdapter):
@@ -25,7 +25,7 @@ class LinearRegAdapter(TrainerAdapter):
 
         return x_train, x_test, y_train, y_test
 
-    @timed_function
+    @timed_function("Linear Regression Prediction")
     def predict(self) -> np.array:
         data = self.data.copy()
         x_train, x_test, y_train, y_test = self.__train_test_split(data)

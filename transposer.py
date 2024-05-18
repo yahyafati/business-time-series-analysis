@@ -61,4 +61,4 @@ def tranpose_data(src: str, dest: str = None) -> pd.DataFrame:
 
 
 if __name__ == '__main__':
-    print(tranpose_data("data.csv", "transposed.csv").head())
+    print(tranpose_data("data.csv", "transposed.ignore.csv").head())

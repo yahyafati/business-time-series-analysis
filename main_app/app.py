@@ -4,7 +4,6 @@ import os
 
 # Local imports
 from utils import transposer
-
 from trainers import LinearReg, ARIMA, ProphetReg, TrainingAdapter, LSTMReg
 
 pd.set_option("display.float_format", "{:.2f}".format)
@@ -16,8 +15,8 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-def process_country_sector(column_sector):
-    data = column_sector.copy()
+def process_single_series(single_series):
+    data = single_series.copy()
     data.columns = ["date", "rate"]
     data["rate"] = data["rate"].astype(str)
 
@@ -40,16 +39,16 @@ def process_country_sector(column_sector):
     return data
 
 
-def get_predictions_for_country_sector(
-    data, country_sector, test_ratio=0.2
+def get_predictions(
+    data, unique_id, test_ratio=0.2
 ) -> list[TrainingAdapter.TrainerAdapter]:
-    country_sector_data = data[["year", country_sector]]
-    country_sector_data = process_country_sector(country_sector_data)
+    df_cur = data[["year", unique_id]]
+    df_cur = process_single_series(df_cur)
 
-    linear_reg = LinearReg.LinearRegAdapter(country_sector_data, test_ratio=test_ratio)
-    arima_reg = ARIMA.ARIMAAdapter(country_sector_data, test_ratio=test_ratio)
-    prophet_reg = ProphetReg.ProphetAdapter(country_sector_data, test_ratio=test_ratio)
-    lstm_reg = LSTMReg.LSTMAdapter(country_sector_data, epochs=1, test_ratio=test_ratio)
+    linear_reg = LinearReg.LinearRegAdapter(df_cur, test_ratio=test_ratio)
+    arima_reg = ARIMA.ARIMAAdapter(df_cur, test_ratio=test_ratio)
+    prophet_reg = ProphetReg.ProphetAdapter(df_cur, test_ratio=test_ratio)
+    lstm_reg = LSTMReg.LSTMAdapter(df_cur, epochs=1, test_ratio=test_ratio)
 
     return [linear_reg, arima_reg, prophet_reg, lstm_reg]
 
@@ -81,13 +80,10 @@ def get_predictions_dataframe(
 
 
 def filter_year_start(df):
-    """
-    Get the rows where the year starts (i.e. the first day of the year)
-    """
     return df[df.index.dayofyear == 1]
 
 
-def create_output_dataframe(df, models, country_sector):
+def create_output_dataframe(df, models, unique_id):
     pred_df = get_predictions_dataframe(models)
     mape = [result.mape for result in models]
     pred_df = filter_year_start(pred_df)
@@ -101,9 +97,9 @@ def create_output_dataframe(df, models, country_sector):
     columns = list(unstacked_pred_df.index)
     pred_df = unstacked_pred_df.to_frame().T
     pred_df.columns = columns
-    pred_df.index = [country_sector]
+    pred_df.index = [unique_id]
 
-    real_df: pd.DataFrame = df[[country_sector, "year"]]
+    real_df: pd.DataFrame = df[[unique_id, "year"]]
     real_df = real_df.set_index("year")
     real_df = real_df.T
     all_df = pd.concat([real_df, pred_df], axis=1)
@@ -111,10 +107,9 @@ def create_output_dataframe(df, models, country_sector):
     return all_df
 
 
-def main():
-    file_path = "data.csv"
+def run(file_path: str, n: int) -> pd.DataFrame:
     absolute_path = os.path.abspath(file_path)
-    df = transposer.read_tranpose_data(absolute_path)
+    df = transposer.read_tranpose_data(absolute_path, n)
     df = df.reset_index()
     df = df.rename(columns={"index": "year"})
 
@@ -126,31 +121,22 @@ def main():
     # get columns that don't have any missing values
     df = df.dropna(axis=1, how="any")
 
-    country_sectors = list(df.columns[1:])
+    unique_ids = list(df.columns[1:])
 
     final_df = pd.DataFrame()
-    total = len(country_sectors)
-    for i, country_sector in enumerate(country_sectors):
-        models = get_predictions_for_country_sector(df, country_sector)
+    total = len(unique_ids)
+    for i, unique_id in enumerate(unique_ids):
+        models = get_predictions(df, unique_id)
         for model in models:
             model.predict()
-        output_df = create_output_dataframe(df, models, country_sector)
+        output_df = create_output_dataframe(df, models, unique_id)
         final_df = pd.concat([final_df, output_df])
-        print(f"{i+1}/{total} - {country_sector}")
+        print(f"{i+1}/{total} - {unique_id}")
 
         if i == 5:
             break
 
-    print(final_df.head(3))
-
-    # country_sector = "United States of America_MA"
-    # models = get_predictions_for_country_sector(
-    #     df, country_sector, test_ratio=test_ratio
-    # )
-    # for model in models:
-    #     model.predict()
-    # output_df = create_output_dataframe(df, models, country_sector)
-    # print(output_df)
+    return final_df
 
 
 if __name__ == "__main__":

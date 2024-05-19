@@ -46,15 +46,12 @@ def process_single_series(single_series):
     data = single_series.copy()
     data.columns = ["date", "rate"]
     data["date"] = pd.to_datetime(data["date"], format="%Y")
-    data["rate"] = data["rate"].astype(str)
-    data["rate"] = data.rate.replace("ND", np.nan)
     data["rate"] = pd.to_numeric(data["rate"])
     data = data.resample("YS", on="date", label="left", closed="left").mean()
 
     # gradualize the data by linearly interpolating the data
     data = data.resample("D").asfreq()
     data = data.interpolate(method="linear")
-
     data["time"] = [i + 1 for i in range(len(data))]
 
     return data
@@ -85,30 +82,7 @@ def train_test_split(data, test_ratio=0.2):
     return x_train, x_test, y_train, y_test
 
 
-from sklearn.linear_model import LinearRegression
-
-
-def get_linear_regression_prediction(data: pd.DataFrame, test_ratio=0.2) -> ModelResult:
-    x_train, x_test, y_train, y_test = train_test_split(data, test_ratio)
-
-    model = LinearRegression()
-    model.fit(X=x_train, y=y_train)
-    predictions = model.predict(x_test)
-
-    predictions = predictions.reshape(-1)
-
-    linear_reg_mape = mean_absolute_percentage_error(
-        y_test.values.reshape(-1), predictions
-    )
-
-    return ModelResult(
-        model,
-        y_train.values.reshape(-1),
-        y_test.values.reshape(-1),
-        predictions,
-        linear_reg_mape,
-    )
-
+# ARIMA
 
 from statsmodels.tsa.arima.model import ARIMA
 
@@ -138,6 +112,8 @@ def get_arima_prediction(data, test_ratio=0.2, order=(3, 1, 2)) -> ModelResult:
         arima_mape,
     )
 
+
+# Prophet
 
 from prophet import Prophet
 
@@ -179,12 +155,17 @@ def get_prophet_prediction(
     )
 
 
+# LSTM
+
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.layers import LSTM
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
+
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+tf.get_logger().setLevel("ERROR")
 
 
 def add_rows(data: pd.DataFrame, n: int) -> pd.DataFrame:
@@ -270,12 +251,12 @@ def get_lstm_prediction(data, epochs=5, look_back=1, test_ratio=0.2) -> ModelRes
     )
 
 
+# All Models
+
+
 def train_all_models(data, test_ratio=0.2):
     test_size = int(len(data) * test_ratio)
     train, test = data[:-test_size], data[-test_size:]
-
-    # print("Linear Regression Model Started")
-    # linear_regression_result = get_linear_regression_prediction(data, test_ratio=test_ratio)
 
     print("\n\nARIMA Prediction Started")
     arima_result = get_arima_prediction(data, test_ratio=test_ratio)
@@ -296,9 +277,6 @@ def train_all_models(data, test_ratio=0.2):
             "LSTM": lstm_result,
         },
     }
-
-
-# @title Split the index to separate columns
 
 
 def split_unique_ids(df, n, original_columns):
@@ -363,12 +341,13 @@ def main():
         os.makedirs("predictions")
 
     size = len(unique_ids)
-    for current_index, unique_id in enumerate(unique_ids[:2]):
+    last_saved = 0
+    for current_index, unique_id in enumerate(unique_ids[last_saved:]):
         # Clear screen
         os.system("cls" if os.name == "nt" else "clear")
 
         print(
-            f"[{time_module.ctime()}] - Processing {current_index+1}/{size}. Unique ID: {unique_id}"
+            f"[{time_module.ctime()}] - Processing {current_index + last_saved+1}/{size}. Unique ID: {unique_id}."
         )
         # Prepare the data
         data = df[["year", unique_id]]
@@ -429,10 +408,11 @@ def main():
         final_df = pd.concat([final_df, full_column_df])
 
         # Save every 50th iteration
-        if (current_index + 1) % 50 == 0:
+        current_index += last_saved + 1
+        if current_index % 50 == 0:
             final_df = split_unique_ids(final_df, NUMBER_OF_ID_COLS, ORIGINAL_COLUMNS)
             final_df.to_csv(
-                f"predictions/predictions_{current_index + 1}.csv", sep=";", index=False
+                f"predictions/predictions_{current_index}.csv", sep=";", index=False
             )
 
     sorted_columns = sorted(final_df.columns, key=lambda col: tuple(col.split("_")))

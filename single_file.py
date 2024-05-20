@@ -34,6 +34,21 @@ def create_unique_id(df: pd.DataFrame, n: int) -> pd.DataFrame:
     return df
 
 
+def rename_duplicates(df: pd.DataFrame) -> pd.DataFrame:
+    df_grouped = df.groupby(UNIQUE_ID)
+    df_grouped = df_grouped.filter(lambda x: len(x) > 1)
+
+    unique_ids = df_grouped[UNIQUE_ID].unique()
+    df = df.copy()
+    for unique_id in unique_ids:
+        rows = df_grouped[df_grouped[UNIQUE_ID] == unique_id]
+        # TODO: This is hardcoded. We should find a way to sort the columns dynamically
+        rows = rows.sort_values(by=["2005", "2006", "2007", "2022"], ascending=False)
+        for i, row_index in enumerate(rows.index):
+            df.loc[row_index, UNIQUE_ID] = f"{unique_id}_{i+1}"
+    return df
+
+
 def general_preprocessing(df: pd.DataFrame) -> pd.DataFrame:
     df = df.set_index(UNIQUE_ID)
     df = df.transpose()
@@ -310,7 +325,7 @@ import time as time_module
 ERROR_IDS = []
 
 
-def main(dataset_url, number_of_id_columns, last_saved):
+def main(dataset_url, number_of_id_columns, last_saved, batch_size):
     start_time = time_module.time()
     # print the date time at the start of the execution
     print(f"Start time: {time_module.ctime()}")
@@ -321,6 +336,9 @@ def main(dataset_url, number_of_id_columns, last_saved):
     # Preprocess the dataset
     df = create_unique_id(df, number_of_id_columns)
     print("Data Loaded!")
+
+    # Rename the duplicates
+    df = rename_duplicates(df)
 
     ## Handle Missing Values
     df = perform_imputation(df, KNNImputer(n_neighbors=5), number_of_id_columns)
@@ -413,7 +431,7 @@ def main(dataset_url, number_of_id_columns, last_saved):
 
         # Save every 50th iteration
         current_index += last_saved + 1
-        if current_index % 50 == 0:
+        if current_index % batch_size == 0:
             final_df = split_unique_ids(
                 final_df, number_of_id_columns, ORIGINAL_COLUMNS
             )
@@ -422,7 +440,7 @@ def main(dataset_url, number_of_id_columns, last_saved):
             )
             final_df = pd.DataFrame()
 
-        if current_index % 100 == 0:
+            # if current_index % batch_size == 0:
             print(f"Sleeping for {cooldown_minutes:.2f} minutes.")
             time_module.sleep(cooldown_minutes * 60)
 
@@ -459,23 +477,33 @@ if __name__ == "__main__":
         default=0,
         help="The number of unique ids saved in the last run.",
     )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=25,
+        help="The number of unique ids to be processed before saving the results.",
+    )
 
     args = parser.parse_args()
 
     dataset_url = args.file
     NUMBER_OF_ID_COLS = args.n
     LAST_SAVED = args.last_saved
+    BATCH_SIZE = args.batch_size
 
     try:
-        main(dataset_url, NUMBER_OF_ID_COLS, LAST_SAVED)
+        main(dataset_url, NUMBER_OF_ID_COLS, LAST_SAVED, BATCH_SIZE)
     except KeyboardInterrupt:
         print("\n\n[e] - Execution stopped by the user.")
     except Exception as e:
-        print(f"\n\n[e] - Error: {e}")
+        # print stack trace
+        import traceback
 
-    with open("error_ids.txt", "a") as file:
-        for error_id in ERROR_IDS:
-            file.write(f"{error_id}\n")
+        traceback.print_exc()
+    finally:
+        with open("error_ids.txt", "a") as file:
+            for error_id in ERROR_IDS:
+                file.write(f"{error_id}\n")
 
     # Beep 3 times to notify the user that the execution is finished
     print("\a" * 3)

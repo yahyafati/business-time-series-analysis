@@ -93,7 +93,6 @@ def get_arima_prediction(data, test_ratio=0.2, order=(3, 1, 2)) -> ModelResult:
     test = data[train_size:]
 
     predictions = []
-
     arima = ARIMA(train.rate, order=order).fit()
 
     horizon = len(test)
@@ -308,23 +307,23 @@ def perform_imputation(df, imputer, n, file_name=None):
 from sklearn.impute import KNNImputer
 import time as time_module
 
+ERROR_IDS = []
 
-def main():
+
+def main(dataset_url, number_of_id_columns, last_saved):
     start_time = time_module.time()
     # print the date time at the start of the execution
     print(f"Start time: {time_module.ctime()}")
     # Load the dataset
-    dataset_url = "data.csv"
-    NUMBER_OF_ID_COLS = 2  # Number of columns to be used for creating unique id
     df = pd.read_csv(dataset_url, delimiter=";")
     ORIGINAL_COLUMNS = list(df.columns)
 
     # Preprocess the dataset
-    df = create_unique_id(df, NUMBER_OF_ID_COLS)
+    df = create_unique_id(df, number_of_id_columns)
     print("Data Loaded!")
 
     ## Handle Missing Values
-    df = perform_imputation(df, KNNImputer(n_neighbors=5), NUMBER_OF_ID_COLS)
+    df = perform_imputation(df, KNNImputer(n_neighbors=5), number_of_id_columns)
 
     df = general_preprocessing(df)
 
@@ -341,20 +340,26 @@ def main():
         os.makedirs("predictions")
 
     size = len(unique_ids)
-    last_saved = 0
+    cooldown_minutes = 5
+
     for current_index, unique_id in enumerate(unique_ids[last_saved:]):
         # Clear screen
         os.system("cls" if os.name == "nt" else "clear")
 
         print(
-            f"[{time_module.ctime()}] - Processing {current_index + last_saved+1}/{size}. Unique ID: {unique_id}."
+            f"[{time_module.ctime()}] - Processing {current_index + last_saved+1}/{size}. \n - Unique ID: {unique_id}."
         )
         # Prepare the data
         data = df[["year", unique_id]]
         data = process_single_series(data)
 
         # Train all models
-        results = train_all_models(data, test_ratio=test_ratio)
+        try:
+            results = train_all_models(data, test_ratio=test_ratio)
+        except Exception as e:
+            print(f"Error in {unique_id}: {e}")
+            ERROR_IDS.append(unique_id)
+            continue
 
         # Post process the results
         _train = results["train"]
@@ -376,8 +381,7 @@ def main():
 
         ## Create a DataFrame with the predictions
         pred_df = pd.DataFrame(same_size_predictions)
-        pred_df["year"] = test.index
-        pred_df["year"] = pd.to_datetime(pred_df["year"])
+        pred_df["year"] = pd.to_datetime(test.index)
         pred_df = pred_df.set_index("year")
 
         ## Get the predictions for the first day of the years
@@ -410,15 +414,22 @@ def main():
         # Save every 50th iteration
         current_index += last_saved + 1
         if current_index % 50 == 0:
-            final_df = split_unique_ids(final_df, NUMBER_OF_ID_COLS, ORIGINAL_COLUMNS)
+            final_df = split_unique_ids(
+                final_df, number_of_id_columns, ORIGINAL_COLUMNS
+            )
             final_df.to_csv(
                 f"predictions/predictions_{current_index}.csv", sep=";", index=False
             )
+            final_df = pd.DataFrame()
+
+        if current_index % 100 == 0:
+            print(f"Sleeping for {cooldown_minutes:.2f} minutes.")
+            time_module.sleep(cooldown_minutes * 60)
 
     sorted_columns = sorted(final_df.columns, key=lambda col: tuple(col.split("_")))
     final_df = final_df[sorted_columns]
 
-    final_df = split_unique_ids(final_df, NUMBER_OF_ID_COLS, ORIGINAL_COLUMNS)
+    final_df = split_unique_ids(final_df, number_of_id_columns, ORIGINAL_COLUMNS)
     final_df.to_csv("predictions/predictions.csv", sep=";", index=False)
 
     end_time = time_module.time()
@@ -426,5 +437,45 @@ def main():
     print(f"Execution time: {end_time - start_time:.6f} seconds")
 
 
+import argparse
+
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Process some integers and stuff.")
+    parser.add_argument(
+        "--file",
+        type=str,
+        default="data.csv",
+        help="The path to the file containing the data.",
+    )
+    parser.add_argument(
+        "--n",
+        type=int,
+        default=2,
+        help="The number of columns to be used for creating unique id.",
+    )
+    parser.add_argument(
+        "--last_saved",
+        type=int,
+        default=0,
+        help="The number of unique ids saved in the last run.",
+    )
+
+    args = parser.parse_args()
+
+    dataset_url = args.file
+    NUMBER_OF_ID_COLS = args.n
+    LAST_SAVED = args.last_saved
+
+    try:
+        main(dataset_url, NUMBER_OF_ID_COLS, LAST_SAVED)
+    except KeyboardInterrupt:
+        print("\n\n[e] - Execution stopped by the user.")
+    except Exception as e:
+        print(f"\n\n[e] - Error: {e}")
+
+    with open("error_ids.txt", "a") as file:
+        for error_id in ERROR_IDS:
+            file.write(f"{error_id}\n")
+
+    # Beep 3 times to notify the user that the execution is finished
+    print("\a" * 3)

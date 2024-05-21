@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from pandas.tseries.offsets import DateOffset
-import os
+import os, sys
 from functools import wraps
 
 from dataclasses import dataclass
@@ -12,8 +12,17 @@ import time
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
 
-import argparse
 import traceback
+
+# Local imports
+from input_handler import get_user_inputs, UserInputs
+
+
+OUTPUT_DIR = "outputs"
+OUTPUT_PREDICTIONS_DIR = f"{OUTPUT_DIR}/predictions"
+
+if not os.path.exists(OUTPUT_PREDICTIONS_DIR):
+    os.makedirs(OUTPUT_PREDICTIONS_DIR)
 
 
 @dataclass
@@ -426,10 +435,10 @@ def get_test_ratio(df, until_year):
 
 
 def save_predictions(df, file_name, sep=";"):
-    df.to_csv(f"outputs/predictions/{file_name}.csv", sep=sep, index=False)
+    df.to_csv(f"{OUTPUT_PREDICTIONS_DIR}/{file_name}.csv", sep=sep, index=False)
 
 
-def main(dataset_url, number_of_id_columns, last_saved, batch_size, sep=";"):
+def main(user_inputs: UserInputs):
     print("Importing modules...")
     import_modules()
     print("Modules imported successfully.\n")
@@ -437,22 +446,20 @@ def main(dataset_url, number_of_id_columns, last_saved, batch_size, sep=";"):
     start_time = time.time()
     print(f"Start time: {time.ctime()}")
 
-    df = read_data(dataset_url, sep=sep)
+    df = read_data(user_inputs.dataset_url, sep=user_inputs.sep)
     ORIGINAL_COLUMNS = list(df.columns)
 
-    df = general_preprocessing(df, number_of_id_columns)
+    df = general_preprocessing(df, user_inputs.number_of_id_cols)
     test_ratio = get_test_ratio(df, 2019)
 
     print(f"Test ratio: {test_ratio}\n")
     unique_ids = list(df.columns[1:])
     final_df = pd.DataFrame()
 
-    # make a folder called predictions if it does not exist
-    if not os.path.exists("predictions"):
-        os.makedirs("predictions")
-
     size = len(unique_ids)
     cooldown_minutes = 5
+    last_saved = user_inputs.last_saved
+    batch_size = user_inputs.batch_size
 
     for current_index, unique_id in enumerate(unique_ids[last_saved:]):
         # Clear screen
@@ -461,6 +468,12 @@ def main(dataset_url, number_of_id_columns, last_saved, batch_size, sep=";"):
         print(
             f"[{time.ctime()}] - Processing {current_index + last_saved+1}/{size}. \nUnique ID: {unique_id}."
         )
+        # current_index % batch_size == 0
+        adjusted_index = current_index + last_saved
+        next_save_at = adjusted_index + (batch_size - (adjusted_index % batch_size))
+        print(
+            f"Next save at: {next_save_at}, after {next_save_at - adjusted_index} rows."
+        )
         full_column_df = train_column(df, unique_id, test_ratio=test_ratio)
         final_df = pd.concat([final_df, full_column_df])
 
@@ -468,7 +481,7 @@ def main(dataset_url, number_of_id_columns, last_saved, batch_size, sep=";"):
         current_index += last_saved + 1
         if current_index % batch_size == 0:
             final_df = split_unique_ids(
-                final_df, number_of_id_columns, ORIGINAL_COLUMNS
+                final_df, user_inputs.number_of_id_columns, ORIGINAL_COLUMNS
             )
             save_predictions(final_df, f"predictions_{current_index}.csv", sep=sep)
             final_df = pd.DataFrame()
@@ -486,7 +499,9 @@ def main(dataset_url, number_of_id_columns, last_saved, batch_size, sep=";"):
 
     if final_df.shape[0] > 0:
         final_df = split_unique_ids(final_df, number_of_id_columns, ORIGINAL_COLUMNS)
-        save_predictions(final_df, f"predictions_{current_index}.csv", sep=sep)
+        save_predictions(
+            final_df, f"predictions_{current_index}.csv", sep=user_inputs.sep
+        )
 
     end_time = time.time()
     print(f"End time: {time.ctime()}")
@@ -506,69 +521,15 @@ def combine_files(files, output_file, sep=";"):
     save_predictions(final_df, output_file, sep=sep)
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Process some integers and stuff.")
-    parser.add_argument(
-        "--file",
-        "-f",
-        type=str,
-        help="The path to the file containing the data.",
-    )
-    parser.add_argument(
-        "--n",
-        type=int,
-        default=2,
-        help="The number of columns to be used for creating unique id.",
-    )
-    parser.add_argument(
-        "--sep",
-        "-s",
-        type=str,
-        default=";",
-        help="The separator used in the csv file.",
-    )
-    parser.add_argument(
-        "--last_saved",
-        "-l",
-        type=int,
-        default=0,
-        help="The number of unique ids saved in the last run.",
-    )
-    parser.add_argument(
-        "--batch_size",
-        "-b",
-        type=int,
-        default=25,
-        help="The number of unique ids to be processed before saving the results.",
-    )
-
-    parser.add_argument(
-        "--version",
-        "-v",
-        action="version",
-        version="%(prog)s (version 0.1)",
-    )
-
-    args = parser.parse_args()
-
-    return args
-
-
 if __name__ == "__main__":
-    args = parse_args()
-
-    DATASET_URL = args.file
-    NUMBER_OF_ID_COLS = args.n
-    LAST_SAVED = args.last_saved
-    BATCH_SIZE = args.batch_size
-    SEP = args.sep
+    user_inputs = get_user_inputs()
 
     try:
-        main(DATASET_URL, NUMBER_OF_ID_COLS, LAST_SAVED, BATCH_SIZE, SEP)
+        main(user_inputs)
         combine_files(
             [
-                f"outputs/predictions/{file}"
-                for file in os.listdir("outputs/predictions")
+                f"{OUTPUT_PREDICTIONS_DIR}/{file}"
+                for file in os.listdir(OUTPUT_PREDICTIONS_DIR)
             ],
             "predictions.csv",
             sep=SEP,
@@ -578,7 +539,7 @@ if __name__ == "__main__":
     except Exception as e:
         traceback.print_exc()
     finally:
-        with open("outputs/error_ids.txt", "a") as file:
+        with open(f"{OUTPUT_DIR}/error_ids.txt", "a") as file:
             for error_id in ERROR_IDS:
                 file.write(f"{error_id}\n")
 

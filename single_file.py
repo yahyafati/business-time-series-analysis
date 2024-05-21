@@ -481,9 +481,11 @@ def main(user_inputs: UserInputs):
         current_index += last_saved + 1
         if current_index % batch_size == 0:
             final_df = split_unique_ids(
-                final_df, user_inputs.number_of_id_columns, ORIGINAL_COLUMNS
+                final_df, user_inputs.number_of_id_cols, ORIGINAL_COLUMNS
             )
-            save_predictions(final_df, f"predictions_{current_index}.csv", sep=sep)
+            save_predictions(
+                final_df, f"predictions_{current_index}.csv", sep=user_inputs.sep
+            )
             final_df = pd.DataFrame()
 
         if current_index % int(batch_size) == 0 and current_index != size:
@@ -498,7 +500,9 @@ def main(user_inputs: UserInputs):
     final_df = final_df[sorted_columns]
 
     if final_df.shape[0] > 0:
-        final_df = split_unique_ids(final_df, number_of_id_columns, ORIGINAL_COLUMNS)
+        final_df = split_unique_ids(
+            final_df, user_inputs.number_of_id_cols, ORIGINAL_COLUMNS
+        )
         save_predictions(
             final_df, f"predictions_{current_index}.csv", sep=user_inputs.sep
         )

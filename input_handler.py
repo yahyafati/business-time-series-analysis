@@ -66,30 +66,36 @@ class UserInputs:
     sep: str = DEFAULT_SEP
 
 
+def get_dataset_url() -> str:
+    dataset_url = input(
+        f"Enter the path to the dataset (default: '{DEFAULT_DATA_PATH}'): "
+    ).strip()
+
+    if not dataset_url:
+        dataset_url = "data/Sample Data Set.xlsx"
+    if not os.path.exists(dataset_url):
+        sys.exit(f"File not found at {dataset_url}. Exiting...")
+    if not dataset_url.endswith((".csv", ".xlsx")):
+        sys.exit(
+            f"{dataset_url} is not a supported file format (only .csv and .xlsx are supported). Exiting..."
+        )
+
+    return dataset_url
+
+
 def get_user_inputs() -> UserInputs:
     args = parse_args()
 
     user_inputs = UserInputs(
-        dataset_url=args.file,
-        number_of_id_cols=args.n,
-        last_saved=args.last_saved,
-        batch_size=args.batch_size,
-        sep=args.sep,
+        dataset_url=args.file or DEFAULT_DATA_PATH,
+        number_of_id_cols=args.n or DEFAULT_NO_ID_COLS,
+        last_saved=args.last_saved or DEFAULT_LAST_SAVED,
+        batch_size=args.batch_size or DEFAULT_BATCH_SIZE,
+        sep=args.sep or DEFAULT_SEP,
     )
 
     if not user_inputs.dataset_url:
-        user_inputs.dataset_url = input(
-            f"Enter the path to the dataset (default: '{DEFAULT_DATA_PATH}'): "
-        ).strip()
-
-        if not user_inputs.dataset_url:
-            user_inputs.dataset_url = "data/Sample Data Set.xlsx"
-        if not os.path.exists(user_inputs.dataset_url):
-            sys.exit(f"File not found at {user_inputs.dataset_url}. Exiting...")
-        if not user_inputs.dataset_url.endswith((".csv", ".xlsx")):
-            sys.exit(
-                f"{user_inputs.dataset_url} is not a supported file format (only .csv and .xlsx are supported). Exiting..."
-            )
+        user_inputs.dataset_url = get_dataset_url()
 
     if user_inputs.dataset_url.endswith(".csv") and not user_inputs.sep:
         user_inputs.sep = input(
@@ -101,7 +107,7 @@ def get_user_inputs() -> UserInputs:
     if not user_inputs.number_of_id_cols:
         user_inputs.number_of_id_cols = input(
             f"Enter the number columns not in the time series (default: {DEFAULT_NO_ID_COLS}): "
-        )
+        ).strip()
         if not user_inputs.number_of_id_cols:
             user_inputs.number_of_id_cols = DEFAULT_NO_ID_COLS
         else:

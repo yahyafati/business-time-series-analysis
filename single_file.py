@@ -1,19 +1,44 @@
 import numpy as np
 import pandas as pd
 from pandas.tseries.offsets import DateOffset
-import time
 import os
 from functools import wraps
 
 from dataclasses import dataclass
 
 import warnings
+from sklearn.impute import KNNImputer
+import time
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_squared_error
 
-warnings.filterwarnings("ignore")
-pd.set_option("display.float_format", "{:.2f}".format)
 
-UNIQUE_ID = "id"
-SEPARATOR = "::"
+@dataclass
+class ModelResult:
+    model: object
+    train_values: np.array
+    test_values: np.array
+    predictions: np.array
+    mape: float
+
+
+def import_modules():
+    global MODULES_LOADED
+    if not MODULES_LOADED:
+        global tf, Sequential, Dense, LSTM, Prophet, ARIMA
+
+        from statsmodels.tsa.arima.model import ARIMA
+
+        from prophet import Prophet
+
+        import tensorflow as tf
+        from tensorflow.keras.models import Sequential
+        from tensorflow.keras.layers import Dense
+        from tensorflow.keras.layers import LSTM
+
+        tf.get_logger().setLevel("ERROR")
+
+        MODULES_LOADED = True
 
 
 def mean_absolute_percentage_error(y_true: list[float], y_pred: list[float]) -> float:
@@ -47,7 +72,11 @@ def rename_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def general_preprocessing(df: pd.DataFrame) -> pd.DataFrame:
+def general_preprocessing(df: pd.DataFrame, number_of_id_columns: int) -> pd.DataFrame:
+    df = create_unique_id(df, number_of_id_columns)
+    df = rename_duplicates(df)
+    df = perform_imputation(df, KNNImputer(n_neighbors=5), number_of_id_columns)
+
     df = df.set_index(UNIQUE_ID)
     df = df.transpose()
     df = df.reset_index()
@@ -70,18 +99,6 @@ def process_single_series(single_series):
     return data
 
 
-from dataclasses import dataclass
-
-
-@dataclass
-class ModelResult:
-    model: object
-    train_values: np.array
-    test_values: np.array
-    predictions: np.array
-    mape: float
-
-
 def train_test_split(data, test_ratio=0.2):
     train_size = int(len(data) * (1 - test_ratio))
     train = data[:train_size]
@@ -96,8 +113,6 @@ def train_test_split(data, test_ratio=0.2):
 
 
 # ARIMA
-
-from statsmodels.tsa.arima.model import ARIMA
 
 
 def get_arima_prediction(data, test_ratio=0.2, order=(3, 1, 2)) -> ModelResult:
@@ -126,8 +141,6 @@ def get_arima_prediction(data, test_ratio=0.2, order=(3, 1, 2)) -> ModelResult:
 
 
 # Prophet
-
-from prophet import Prophet
 
 
 @dataclass
@@ -168,16 +181,6 @@ def get_prophet_prediction(
 
 
 # LSTM
-
-import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
-from tensorflow.keras.layers import LSTM
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import mean_squared_error
-
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-tf.get_logger().setLevel("ERROR")
 
 
 def add_rows(data: pd.DataFrame, n: int) -> pd.DataFrame:
@@ -317,53 +320,123 @@ def perform_imputation(df, imputer, n, file_name=None, sep=";"):
 
 
 # END TO END PIPELINE
-from sklearn.impute import KNNImputer
-import time as time_module
+
+MODULES_LOADED = False
+warnings.filterwarnings("ignore")
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+pd.set_option("display.float_format", "{:.2f}".format)
+
+UNIQUE_ID = "id"
+SEPARATOR = "::"
 
 ERROR_IDS = []
 
 
-# create a function that will countdown time
 def countdown(t):
     while t:
         mins, secs = divmod(t, 60)
         timeformat = "Time Left: {:02d}:{:02d}".format(mins, secs)
         print(timeformat, end="\r")
-        time_module.sleep(1)
+        time.sleep(1)
         t -= 1
 
 
-def main(dataset_url, number_of_id_columns, last_saved, batch_size, sep=";"):
-    start_time = time_module.time()
-    # print the date time at the start of the execution
-    print(f"Start time: {time_module.ctime()}")
-    # Load the dataset
-    # use appropriate read function based on the file type
-    if dataset_url.endswith(".csv"):
-        df = pd.read_csv(dataset_url, sep=sep)
-    elif dataset_url.endswith(".xlsx"):
-        df = pd.read_excel(dataset_url)
+def train_column(df, unique_id, test_ratio=0.2):
+    # Prepare the data
+    data = df[["year", unique_id]]
+    data = process_single_series(data)
+
+    # Train all models
+    try:
+        results = train_all_models(data, test_ratio=test_ratio)
+    except Exception as e:
+        print(f"Error in {unique_id}: {e}")
+        ERROR_IDS.append(unique_id)
+        return
+
+    # Post process the results
+    _train = results["train"]
+    test = results["test"]
+    predictions = results["models"]
+
+    ## Get the predictions in the same size by padding with NaN
+    max_size = max([pred.predictions.shape[0] for _, pred in predictions.items()])
+    same_size_predictions = {}
+
+    for model_name, model_result in predictions.items():
+        model_result.predictions = np.pad(
+            model_result.predictions,
+            (0, max_size - len(model_result.predictions)),
+            "constant",
+            constant_values=(np.nan),
+        )
+        same_size_predictions[model_name] = model_result.predictions
+
+    ## Create a DataFrame with the predictions
+    pred_df = pd.DataFrame(same_size_predictions)
+    pred_df["year"] = pd.to_datetime(test.index)
+    pred_df = pred_df.set_index("year")
+
+    ## Get the predictions for the first day of the years
+    pred_df = pred_df[pred_df.index.dayofyear == 1]
+
+    pred_df.index = pred_df.index.year
+
+    test_first_day_only = test[test.index.dayofyear == 1]
+    test_first_day_only.index = test_first_day_only.index.year
+    for col in pred_df.columns:
+        pred_df[f"{col}_MAPE"] = (
+            np.abs(pred_df[col] - test_first_day_only.loc[pred_df.index]["rate"])
+            / test_first_day_only.loc[pred_df.index]["rate"]
+        ) * 100
+
+    pred_df_unstacked = pred_df.unstack()
+    pred_df_unstacked.index = [
+        f"{year}_{model}" for model, year in pred_df_unstacked.index
+    ]
+    pred_df = pred_df_unstacked.to_frame().T
+    pred_df.index = [unique_id]
+
+    real_df: pd.DataFrame = df[[unique_id, "year"]]
+    real_df = real_df.set_index("year")
+    real_df = real_df.T
+
+    full_column_df = pd.concat([real_df, pred_df], axis=1)
+
+    return full_column_df
+
+
+def read_data(file_path, sep=";"):
+    if file_path.endswith(".csv"):
+        df = pd.read_csv(file_path, sep=sep)
+    elif file_path.endswith(".xlsx"):
+        df = pd.read_excel(file_path)
     else:
         raise ValueError("Unsupported file type. Please provide a csv or xlsx file.")
-    ORIGINAL_COLUMNS = list(df.columns)
+    return df
 
-    # Preprocess the dataset
-    df = create_unique_id(df, number_of_id_columns)
-    print("Data Loaded!")
 
-    # Rename the duplicates
-    df = rename_duplicates(df)
-
-    ## Handle Missing Values
-    df = perform_imputation(df, KNNImputer(n_neighbors=5), number_of_id_columns)
-
-    df = general_preprocessing(df)
-
-    until_year = 2019
+def get_test_ratio(df, until_year):
     size = df[pd.to_datetime(df["year"]).dt.year > until_year].shape[0]
     test_ratio = size / df.shape[0]
-    print(f"Test ratio: {test_ratio}\n")
+    return test_ratio
 
+
+def main(dataset_url, number_of_id_columns, last_saved, batch_size, sep=";"):
+    print("Importing modules...")
+    import_modules()
+    print("Modules imported successfully.\n")
+
+    start_time = time.time()
+    print(f"Start time: {time.ctime()}")
+
+    df = read_data(dataset_url, sep=sep)
+    ORIGINAL_COLUMNS = list(df.columns)
+
+    df = general_preprocessing(df, number_of_id_columns)
+    test_ratio = get_test_ratio(df, 2019)
+
+    print(f"Test ratio: {test_ratio}\n")
     unique_ids = list(df.columns[1:])
     final_df = pd.DataFrame()
 
@@ -379,68 +452,9 @@ def main(dataset_url, number_of_id_columns, last_saved, batch_size, sep=";"):
         os.system("cls" if os.name == "nt" else "clear")
 
         print(
-            f"[{time_module.ctime()}] - Processing {current_index + last_saved+1}/{size}. \n - Unique ID: {unique_id}."
+            f"[{time.ctime()}] - Processing {current_index + last_saved+1}/{size}. \nUnique ID: {unique_id}."
         )
-        # Prepare the data
-        data = df[["year", unique_id]]
-        data = process_single_series(data)
-
-        # Train all models
-        try:
-            results = train_all_models(data, test_ratio=test_ratio)
-        except Exception as e:
-            print(f"Error in {unique_id}: {e}")
-            ERROR_IDS.append(unique_id)
-            continue
-
-        # Post process the results
-        _train = results["train"]
-        test = results["test"]
-        predictions = results["models"]
-
-        ## Get the predictions in the same size by padding with NaN
-        max_size = max([pred.predictions.shape[0] for _, pred in predictions.items()])
-        same_size_predictions = {}
-
-        for model_name, model_result in predictions.items():
-            model_result.predictions = np.pad(
-                model_result.predictions,
-                (0, max_size - len(model_result.predictions)),
-                "constant",
-                constant_values=(np.nan),
-            )
-            same_size_predictions[model_name] = model_result.predictions
-
-        ## Create a DataFrame with the predictions
-        pred_df = pd.DataFrame(same_size_predictions)
-        pred_df["year"] = pd.to_datetime(test.index)
-        pred_df = pred_df.set_index("year")
-
-        ## Get the predictions for the first day of the years
-        pred_df = pred_df[pred_df.index.dayofyear == 1]
-
-        pred_df.index = pred_df.index.year
-
-        test_first_day_only = test[test.index.dayofyear == 1]
-        test_first_day_only.index = test_first_day_only.index.year
-        for col in pred_df.columns:
-            pred_df[f"{col}_MAPE"] = (
-                np.abs(pred_df[col] - test_first_day_only.loc[pred_df.index]["rate"])
-                / test_first_day_only.loc[pred_df.index]["rate"]
-            ) * 100
-
-        pred_df_unstacked = pred_df.unstack()
-        pred_df_unstacked.index = [
-            f"{year}_{model}" for model, year in pred_df_unstacked.index
-        ]
-        pred_df = pred_df_unstacked.to_frame().T
-        pred_df.index = [unique_id]
-
-        real_df: pd.DataFrame = df[[unique_id, "year"]]
-        real_df = real_df.set_index("year")
-        real_df = real_df.T
-
-        full_column_df = pd.concat([real_df, pred_df], axis=1)
+        full_column_df = train_column(df, unique_id, test_ratio=test_ratio)
         final_df = pd.concat([final_df, full_column_df])
 
         # Save every 50th iteration
@@ -454,12 +468,12 @@ def main(dataset_url, number_of_id_columns, last_saved, batch_size, sep=";"):
             )
             final_df = pd.DataFrame()
 
-        if current_index % int(batch_size * 2) == 0:
+        if current_index % int(batch_size) == 0:
             print(f"\n\nSleeping for {cooldown_minutes:.2f} minutes. (For CPU cooling)")
             print(
-                f"Next batch will start at {time_module.ctime(time_module.time() + cooldown_minutes * 60)}"
+                f"Next batch will start at {time.ctime(time.time() + cooldown_minutes * 60)}"
             )
-            # time_module.sleep(cooldown_minutes * 60)
+            # time.sleep(cooldown_minutes * 60)
             countdown(cooldown_minutes * 60)
 
     sorted_columns = sorted(final_df.columns, key=lambda col: tuple(col.split("_")))
@@ -469,8 +483,8 @@ def main(dataset_url, number_of_id_columns, last_saved, batch_size, sep=";"):
         final_df = split_unique_ids(final_df, number_of_id_columns, ORIGINAL_COLUMNS)
         final_df.to_csv(f"predictions/predictions_{size}.csv", sep=sep, index=False)
 
-    end_time = time_module.time()
-    print(f"End time: {time_module.ctime()}")
+    end_time = time.time()
+    print(f"End time: {time.ctime()}")
     print(f"Execution time: {end_time - start_time:.6f} seconds")
 
 
@@ -489,19 +503,13 @@ import argparse
 import traceback
 
 
-def create_parser():
+def parse_args():
     parser = argparse.ArgumentParser(description="Process some integers and stuff.")
     parser.add_argument(
         "--file",
+        "-f",
         type=str,
-        default="data.csv",
         help="The path to the file containing the data.",
-    )
-    parser.add_argument(
-        "--sep",
-        type=str,
-        default=";",
-        help="The separator used in the csv file.",
     )
     parser.add_argument(
         "--n",
@@ -510,33 +518,50 @@ def create_parser():
         help="The number of columns to be used for creating unique id.",
     )
     parser.add_argument(
+        "--sep",
+        "-s",
+        type=str,
+        default=";",
+        help="The separator used in the csv file.",
+    )
+    parser.add_argument(
         "--last_saved",
+        "-l",
         type=int,
         default=0,
         help="The number of unique ids saved in the last run.",
     )
     parser.add_argument(
         "--batch_size",
+        "-b",
         type=int,
         default=25,
         help="The number of unique ids to be processed before saving the results.",
     )
 
-    return parser
+    parser.add_argument(
+        "--version",
+        "-v",
+        action="version",
+        version="%(prog)s (version 0.1)",
+    )
+
+    args = parser.parse_args()
+
+    return args
 
 
 if __name__ == "__main__":
-    parser = create_parser()
-    args = parser.parse_args()
+    args = parse_args()
 
-    dataset_url = args.file
+    DATASET_URL = args.file
     NUMBER_OF_ID_COLS = args.n
     LAST_SAVED = args.last_saved
     BATCH_SIZE = args.batch_size
     SEP = args.sep
 
     try:
-        # main(dataset_url, NUMBER_OF_ID_COLS, LAST_SAVED, BATCH_SIZE, sep=SEP)
+        main(DATASET_URL, NUMBER_OF_ID_COLS, LAST_SAVED, BATCH_SIZE, SEP)
         combine_files(
             [f"predictions/{file}" for file in os.listdir("predictions")],
             "predictions.csv",
@@ -551,5 +576,4 @@ if __name__ == "__main__":
             for error_id in ERROR_IDS:
                 file.write(f"{error_id}\n")
 
-    # Beep 3 times to notify the user that the execution is finished
     print("\a" * 3)

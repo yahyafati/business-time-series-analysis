@@ -303,7 +303,7 @@ def split_unique_ids(df, n, original_columns):
     return split_df[columns].reset_index(drop=True)
 
 
-def perform_imputation(df, imputer, n, file_name=None):
+def perform_imputation(df, imputer, n, file_name=None, sep=";"):
     imputed_values = imputer.fit_transform(df[df.columns[1:]])
     imputed_data = df.copy()
     imputed_data[df.columns[1:]] = imputed_values
@@ -311,7 +311,7 @@ def perform_imputation(df, imputer, n, file_name=None):
     if file_name:
         imputed_data = imputed_data.set_index(UNIQUE_ID)
         imputed_data = split_unique_ids(imputed_data, n, ORIGINAL_COLUMNS)
-        imputed_data.to_csv(file_name, sep=";", index=False)
+        imputed_data.to_csv(file_name, sep=sep, index=False)
         imputed_data = create_unique_id(imputed_data, n)
         imputed_data = imputed_data.reset_index()
 
@@ -325,12 +325,28 @@ import time as time_module
 ERROR_IDS = []
 
 
-def main(dataset_url, number_of_id_columns, last_saved, batch_size):
+# create a function that will countdown time
+def countdown(t):
+    while t:
+        mins, secs = divmod(t, 60)
+        timeformat = "Time Left: {:02d}:{:02d}".format(mins, secs)
+        print(timeformat, end="\r")
+        time_module.sleep(1)
+        t -= 1
+
+
+def main(dataset_url, number_of_id_columns, last_saved, batch_size, sep=";"):
     start_time = time_module.time()
     # print the date time at the start of the execution
     print(f"Start time: {time_module.ctime()}")
     # Load the dataset
-    df = pd.read_csv(dataset_url, delimiter=";")
+    # use appropriate read function based on the file type
+    if dataset_url.endswith(".csv"):
+        df = pd.read_csv(dataset_url, sep=sep)
+    elif dataset_url.endswith(".xlsx"):
+        df = pd.read_excel(dataset_url)
+    else:
+        raise ValueError("Unsupported file type. Please provide a csv or xlsx file.")
     ORIGINAL_COLUMNS = list(df.columns)
 
     # Preprocess the dataset
@@ -436,19 +452,23 @@ def main(dataset_url, number_of_id_columns, last_saved, batch_size):
                 final_df, number_of_id_columns, ORIGINAL_COLUMNS
             )
             final_df.to_csv(
-                f"predictions/predictions_{current_index}.csv", sep=";", index=False
+                f"predictions/predictions_{current_index}.csv", sep=sep, index=False
             )
             final_df = pd.DataFrame()
 
-            # if current_index % batch_size == 0:
-            print(f"Sleeping for {cooldown_minutes:.2f} minutes.")
-            time_module.sleep(cooldown_minutes * 60)
+        if current_index % int(batch_size * 2) == 0:
+            print(f"\n\nSleeping for {cooldown_minutes:.2f} minutes. (For CPU cooling)")
+            print(
+                f"Next batch will start at {time_module.ctime(time_module.time() + cooldown_minutes * 60)}"
+            )
+            # time_module.sleep(cooldown_minutes * 60)
+            countdown(cooldown_minutes * 60)
 
     sorted_columns = sorted(final_df.columns, key=lambda col: tuple(col.split("_")))
     final_df = final_df[sorted_columns]
 
     final_df = split_unique_ids(final_df, number_of_id_columns, ORIGINAL_COLUMNS)
-    final_df.to_csv("predictions/predictions.csv", sep=";", index=False)
+    final_df.to_csv(f"predictions/predictions_{size}.csv", sep=sep, index=False)
 
     end_time = time_module.time()
     print(f"End time: {time_module.ctime()}")
@@ -457,7 +477,8 @@ def main(dataset_url, number_of_id_columns, last_saved, batch_size):
 
 import argparse
 
-if __name__ == "__main__":
+
+def create_parser():
     parser = argparse.ArgumentParser(description="Process some integers and stuff.")
     parser.add_argument(
         "--file",
@@ -484,6 +505,11 @@ if __name__ == "__main__":
         help="The number of unique ids to be processed before saving the results.",
     )
 
+    return parser
+
+
+if __name__ == "__main__":
+    parser = create_parser()
     args = parser.parse_args()
 
     dataset_url = args.file

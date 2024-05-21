@@ -12,6 +12,9 @@ import time
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
 
+import argparse
+import traceback
+
 
 @dataclass
 class ModelResult:
@@ -422,6 +425,10 @@ def get_test_ratio(df, until_year):
     return test_ratio
 
 
+def save_predictions(df, file_name, sep=";"):
+    df.to_csv(f"outputs/predictions/{file_name}.csv", sep=sep, index=False)
+
+
 def main(dataset_url, number_of_id_columns, last_saved, batch_size, sep=";"):
     print("Importing modules...")
     import_modules()
@@ -463,12 +470,10 @@ def main(dataset_url, number_of_id_columns, last_saved, batch_size, sep=";"):
             final_df = split_unique_ids(
                 final_df, number_of_id_columns, ORIGINAL_COLUMNS
             )
-            final_df.to_csv(
-                f"predictions/predictions_{current_index}.csv", sep=sep, index=False
-            )
+            save_predictions(final_df, f"predictions_{current_index}.csv", sep=sep)
             final_df = pd.DataFrame()
 
-        if current_index % int(batch_size) == 0:
+        if current_index % int(batch_size) == 0 and current_index != size:
             print(f"\n\nSleeping for {cooldown_minutes:.2f} minutes. (For CPU cooling)")
             print(
                 f"Next batch will start at {time.ctime(time.time() + cooldown_minutes * 60)}"
@@ -481,7 +486,7 @@ def main(dataset_url, number_of_id_columns, last_saved, batch_size, sep=";"):
 
     if final_df.shape[0] > 0:
         final_df = split_unique_ids(final_df, number_of_id_columns, ORIGINAL_COLUMNS)
-        final_df.to_csv(f"predictions/predictions_{size}.csv", sep=sep, index=False)
+        save_predictions(final_df, f"predictions_{current_index}.csv", sep=sep)
 
     end_time = time.time()
     print(f"End time: {time.ctime()}")
@@ -490,17 +495,15 @@ def main(dataset_url, number_of_id_columns, last_saved, batch_size, sep=";"):
 
 def combine_files(files, output_file, sep=";"):
     dfs = []
+
+    files = [file for file in files if "_" in file]
     files = list(sorted(files, key=lambda file: int(file.split("_")[-1].split(".")[0])))
     for file in files:
         df = pd.read_csv(file, sep=sep)
         dfs.append(df)
 
     final_df = pd.concat(dfs)
-    final_df.to_csv(output_file, sep=sep, index=False)
-
-
-import argparse
-import traceback
+    save_predictions(final_df, output_file, sep=sep)
 
 
 def parse_args():
@@ -563,7 +566,10 @@ if __name__ == "__main__":
     try:
         main(DATASET_URL, NUMBER_OF_ID_COLS, LAST_SAVED, BATCH_SIZE, SEP)
         combine_files(
-            [f"predictions/{file}" for file in os.listdir("predictions")],
+            [
+                f"outputs/predictions/{file}"
+                for file in os.listdir("outputs/predictions")
+            ],
             "predictions.csv",
             sep=SEP,
         )
@@ -572,7 +578,7 @@ if __name__ == "__main__":
     except Exception as e:
         traceback.print_exc()
     finally:
-        with open("error_ids.txt", "a") as file:
+        with open("outputs/error_ids.txt", "a") as file:
             for error_id in ERROR_IDS:
                 file.write(f"{error_id}\n")
 

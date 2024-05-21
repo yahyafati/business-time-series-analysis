@@ -42,8 +42,6 @@ def rename_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     for unique_id in unique_ids:
         rows = df_grouped[df_grouped[UNIQUE_ID] == unique_id]
-        # TODO: This is hardcoded. We should find a way to sort the columns dynamically
-        rows = rows.sort_values(by=["2005", "2006", "2007", "2022"], ascending=False)
         for i, row_index in enumerate(rows.index):
             df.loc[row_index, UNIQUE_ID] = f"{unique_id}_{i+1}"
     return df
@@ -467,15 +465,28 @@ def main(dataset_url, number_of_id_columns, last_saved, batch_size, sep=";"):
     sorted_columns = sorted(final_df.columns, key=lambda col: tuple(col.split("_")))
     final_df = final_df[sorted_columns]
 
-    final_df = split_unique_ids(final_df, number_of_id_columns, ORIGINAL_COLUMNS)
-    final_df.to_csv(f"predictions/predictions_{size}.csv", sep=sep, index=False)
+    if final_df.shape[0] > 0:
+        final_df = split_unique_ids(final_df, number_of_id_columns, ORIGINAL_COLUMNS)
+        final_df.to_csv(f"predictions/predictions_{size}.csv", sep=sep, index=False)
 
     end_time = time_module.time()
     print(f"End time: {time_module.ctime()}")
     print(f"Execution time: {end_time - start_time:.6f} seconds")
 
 
+def combine_files(files, output_file, sep=";"):
+    dfs = []
+    files = list(sorted(files, key=lambda file: int(file.split("_")[-1].split(".")[0])))
+    for file in files:
+        df = pd.read_csv(file, sep=sep)
+        dfs.append(df)
+
+    final_df = pd.concat(dfs)
+    final_df.to_csv(output_file, sep=sep, index=False)
+
+
 import argparse
+import traceback
 
 
 def create_parser():
@@ -485,6 +496,12 @@ def create_parser():
         type=str,
         default="data.csv",
         help="The path to the file containing the data.",
+    )
+    parser.add_argument(
+        "--sep",
+        type=str,
+        default=";",
+        help="The separator used in the csv file.",
     )
     parser.add_argument(
         "--n",
@@ -516,15 +533,18 @@ if __name__ == "__main__":
     NUMBER_OF_ID_COLS = args.n
     LAST_SAVED = args.last_saved
     BATCH_SIZE = args.batch_size
+    SEP = args.sep
 
     try:
-        main(dataset_url, NUMBER_OF_ID_COLS, LAST_SAVED, BATCH_SIZE)
+        # main(dataset_url, NUMBER_OF_ID_COLS, LAST_SAVED, BATCH_SIZE, sep=SEP)
+        combine_files(
+            [f"predictions/{file}" for file in os.listdir("predictions")],
+            "predictions.csv",
+            sep=SEP,
+        )
     except KeyboardInterrupt:
         print("\n\n[e] - Execution stopped by the user.")
     except Exception as e:
-        # print stack trace
-        import traceback
-
         traceback.print_exc()
     finally:
         with open("error_ids.txt", "a") as file:

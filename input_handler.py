@@ -87,22 +87,22 @@ def get_user_inputs() -> UserInputs:
     args = parse_args()
 
     user_inputs = UserInputs(
-        dataset_url=args.file or DEFAULT_DATA_PATH,
-        number_of_id_cols=args.n or DEFAULT_NO_ID_COLS,
+        dataset_url=args.file,
+        number_of_id_cols=args.n,
         last_saved=args.last_saved or DEFAULT_LAST_SAVED,
         batch_size=args.batch_size or DEFAULT_BATCH_SIZE,
-        sep=args.sep or DEFAULT_SEP,
+        sep=args.sep,
     )
 
     if not user_inputs.dataset_url:
         user_inputs.dataset_url = get_dataset_url()
 
-    if user_inputs.dataset_url.endswith(".csv") and not user_inputs.sep:
+    if user_inputs.dataset_url.endswith(".csv"):
         user_inputs.sep = input(
             f"Enter the separator used in the dataset (default: '{DEFAULT_SEP}'): "
         ).strip()
         if not user_inputs.sep:
-            user_inputs.sep = ";"
+            user_inputs.sep = DEFAULT_SEP
 
     if not user_inputs.number_of_id_cols:
         user_inputs.number_of_id_cols = input(

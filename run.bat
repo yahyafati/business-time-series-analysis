@@ -5,3 +5,6 @@
 @REM Run the application
 @REM Path: index.py
 python index.py
+
+@REM Pause
+pause

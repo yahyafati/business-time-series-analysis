@@ -484,7 +484,7 @@ def main(user_inputs: UserInputs):
                 final_df, user_inputs.number_of_id_cols, ORIGINAL_COLUMNS
             )
             save_predictions(
-                final_df, f"predictions_{current_index}.csv", sep=user_inputs.sep
+                final_df, f"predictions_{current_index}", sep=user_inputs.sep
             )
             final_df = pd.DataFrame()
 
@@ -503,9 +503,7 @@ def main(user_inputs: UserInputs):
         final_df = split_unique_ids(
             final_df, user_inputs.number_of_id_cols, ORIGINAL_COLUMNS
         )
-        save_predictions(
-            final_df, f"predictions_{current_index}.csv", sep=user_inputs.sep
-        )
+        save_predictions(final_df, f"predictions_{current_index}", sep=user_inputs.sep)
 
     end_time = time.time()
     print(f"End time: {time.ctime()}")
@@ -535,7 +533,7 @@ if __name__ == "__main__":
                 f"{OUTPUT_PREDICTIONS_DIR}/{file}"
                 for file in os.listdir(OUTPUT_PREDICTIONS_DIR)
             ],
-            "predictions.csv",
+            "predictions-all",
             sep=SEP,
         )
     except KeyboardInterrupt:

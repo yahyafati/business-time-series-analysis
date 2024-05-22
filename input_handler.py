@@ -4,11 +4,11 @@ from dataclasses import dataclass
 import argparse
 
 # Constants
-DEFAULT_DATA_PATH = "data/Sample Data Set.xlsx"
+DEFAULT_DATA_PATH = "data/WtoData Export (Tes).xlsx"
 DEFAULT_SEP = ";"
 DEFAULT_NO_ID_COLS = 2
 DEFAULT_LAST_SAVED = 0
-DEFAULT_BATCH_SIZE = 50
+DEFAULT_BATCH_SIZE = 500
 
 
 def parse_args():
@@ -72,7 +72,7 @@ def get_dataset_url() -> str:
     ).strip()
 
     if not dataset_url:
-        dataset_url = "data/Sample Data Set.xlsx"
+        dataset_url = DEFAULT_DATA_PATH
     if not os.path.exists(dataset_url):
         sys.exit(f"File not found at {dataset_url}. Exiting...")
     if not dataset_url.endswith((".csv", ".xlsx")):

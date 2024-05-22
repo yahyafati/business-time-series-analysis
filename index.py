@@ -1,3 +1,13 @@
+"""
+Group Members:
+
+1. Buse Torun
+2. Farah Mahmut
+3. Sohayla Sherief
+4. Yahya Fati Haji
+
+"""
+
 import numpy as np
 import pandas as pd
 from pandas.tseries.offsets import DateOffset
@@ -346,7 +356,7 @@ ERROR_IDS = []
 
 def countdown(t):
     while t:
-        mins, secs = divmod(t, 60)
+        mins, secs = divmod(int(t), 60)
         timeformat = "Time Left: {:02d}:{:02d}".format(mins, secs)
         print(timeformat, end="\r")
         time.sleep(1)
@@ -372,16 +382,11 @@ def train_column(df, unique_id, test_ratio=0.2):
     predictions = results["models"]
 
     ## Get the predictions in the same size by padding with NaN
-    max_size = max([pred.predictions.shape[0] for _, pred in predictions.items()])
+    min_size = min([pred.predictions.shape[0] for _, pred in predictions.items()])
     same_size_predictions = {}
 
     for model_name, model_result in predictions.items():
-        model_result.predictions = np.pad(
-            model_result.predictions,
-            (0, max_size - len(model_result.predictions)),
-            "constant",
-            constant_values=(np.nan),
-        )
+        model_result.predictions = model_result.predictions[:min_size]
         same_size_predictions[model_name] = model_result.predictions
 
     ## Create a DataFrame with the predictions
@@ -435,7 +440,8 @@ def get_test_ratio(df, until_year):
 
 
 def save_predictions(df, file_name, sep=";"):
-    df.to_csv(f"{OUTPUT_PREDICTIONS_DIR}/{file_name}.csv", sep=sep, index=False)
+    # df.to_csv(f"{OUTPUT_PREDICTIONS_DIR}/{file_name}.csv", sep=sep, index=False)
+    df.to_excel(f"{OUTPUT_PREDICTIONS_DIR}/{file_name}.xlsx", index=False)
 
 
 def main(user_inputs: UserInputs):
@@ -457,16 +463,15 @@ def main(user_inputs: UserInputs):
     final_df = pd.DataFrame()
 
     size = len(unique_ids)
-    cooldown_minutes = 5
     last_saved = user_inputs.last_saved
     batch_size = user_inputs.batch_size
 
     for current_index, unique_id in enumerate(unique_ids[last_saved:]):
         # Clear screen
         os.system("cls" if os.name == "nt" else "clear")
-
+        percentage = (current_index + last_saved) / size * 100
         print(
-            f"[{time.ctime()}] - Processing {current_index + last_saved+1}/{size}. \nUnique ID: {unique_id}."
+            f"[{time.ctime()}] - Processing {current_index + last_saved+1}/{size} - {percentage:.2f}% done.\nUnique ID: {unique_id}"
         )
         # current_index % batch_size == 0
         adjusted_index = current_index + last_saved
@@ -488,14 +493,6 @@ def main(user_inputs: UserInputs):
             )
             final_df = pd.DataFrame()
 
-        if current_index % int(batch_size) == 0 and current_index != size:
-            print(f"\n\nSleeping for {cooldown_minutes:.2f} minutes. (For CPU cooling)")
-            print(
-                f"Next batch will start at {time.ctime(time.time() + cooldown_minutes * 60)}"
-            )
-            # time.sleep(cooldown_minutes * 60)
-            countdown(cooldown_minutes * 60)
-
     sorted_columns = sorted(final_df.columns, key=lambda col: tuple(col.split("_")))
     final_df = final_df[sorted_columns]
 
@@ -510,17 +507,18 @@ def main(user_inputs: UserInputs):
     print(f"Execution time: {end_time - start_time:.6f} seconds")
 
 
-def combine_files(files, output_file, sep=";"):
+def combine_files(files, output_file):
     dfs = []
 
     files = [file for file in files if "_" in file]
+    files = [file for file in files if file.endswith(".xlsx")]
     files = list(sorted(files, key=lambda file: int(file.split("_")[-1].split(".")[0])))
     for file in files:
-        df = pd.read_csv(file, sep=sep)
+        df = pd.read_excel(file)
         dfs.append(df)
 
     final_df = pd.concat(dfs)
-    save_predictions(final_df, output_file, sep=sep)
+    save_predictions(final_df, output_file)
 
 
 if __name__ == "__main__":
@@ -534,7 +532,6 @@ if __name__ == "__main__":
                 for file in os.listdir(OUTPUT_PREDICTIONS_DIR)
             ],
             "predictions-all",
-            sep=SEP,
         )
     except KeyboardInterrupt:
         print("\n\n[e] - Execution stopped by the user.")

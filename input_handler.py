@@ -91,7 +91,7 @@ def get_user_inputs() -> UserInputs:
         number_of_id_cols=args.n,
         last_saved=args.last_saved or DEFAULT_LAST_SAVED,
         batch_size=args.batch_size or DEFAULT_BATCH_SIZE,
-        sep=args.sep,
+        sep=args.sep or DEFAULT_SEP,
     )
 
     if not user_inputs.dataset_url:
